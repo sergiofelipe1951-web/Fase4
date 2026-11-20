@@ -230,16 +230,150 @@ class Reserva(EntidadBase):
         )
 
 
-# --- Prueba rápida del Bloque 2 ---
-if __name__ == "__main__":
+# ==========================================
+# BLOQUE 3: GESTOR DEL SISTEMA Y SIMULACIÓN
+# ==========================================
+
+class GestorSoftwareFJ:
+    """Coordina clientes, servicios, reservas, cálculos y registro de eventos."""
+
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        self.clientes: dict[str, Cliente] = {}
+        self.servicios: dict[str, Servicio] = {}
+        self.reservas: dict[str, Reserva] = {}
+
+    def registrar_cliente(self, cliente: Cliente) -> Cliente:
+        if not isinstance(cliente, Cliente):
+            raise ErrorValidacionDato("El objeto proporcionado no es un Cliente válido.", campo="cliente")
+        if cliente.id_cliente in self.clientes:
+            raise ErrorValidacionDato(f"Ya existe un cliente con ID '{cliente.id_cliente}'.", campo="id_cliente")
+        self.clientes[cliente.id_cliente] = cliente
+        self.logger.info(f"Cliente registrado: {cliente}")
+        return cliente
+
+    def registrar_servicio(self, servicio: Servicio) -> Servicio:
+        if not isinstance(servicio, Servicio):
+            raise ErrorValidacionDato("El objeto proporcionado no es un Servicio válido.", campo="servicio")
+        if servicio.codigo in self.servicios:
+            raise ErrorValidacionDato(f"Ya existe un servicio con código '{servicio.codigo}'.", campo="codigo")
+        self.servicios[servicio.codigo] = servicio
+        self.logger.info(f"Servicio registrado: {servicio}")
+        return servicio
+
+    def crear_reserva(
+        self,
+        id_reserva: str,
+        id_cliente: str,
+        codigo_servicio: str,
+        cantidad: float,
+        fecha_str: str,
+    ) -> Reserva:
+        id_limpio = EntidadBase.validar_texto_no_vacio(id_reserva, "id_reserva")
+        if id_limpio in self.reservas:
+            raise ErrorDisponibilidadServicio(f"Ya existe una reserva con ID '{id_limpio}'.")
+
+        id_cli_limpio = EntidadBase.validar_texto_no_vacio(id_cliente, "id_cliente")
+        if id_cli_limpio not in self.clientes:
+            raise ErrorValidacionDato(f"No existe cliente con ID '{id_cli_limpio}'.", campo="id_cliente")
+
+        cod_serv_limpio = EntidadBase.validar_texto_no_vacio(codigo_servicio, "codigo_servicio")
+        if cod_serv_limpio not in self.servicios:
+            raise ErrorDisponibilidadServicio(f"No existe servicio con código '{cod_serv_limpio}'.")
+
+        cliente = self.clientes[id_cli_limpio]
+        servicio = self.servicios[cod_serv_limpio]
+
+        reserva = Reserva(
+            id_reserva=id_limpio,
+            cliente=cliente,
+            servicio=servicio,
+            cantidad=cantidad,
+            fecha_str=fecha_str,
+        )
+        self.reservas[id_limpio] = reserva
+        self.logger.info(f"Reserva creada: {reserva}")
+        return reserva
+
+    def actualizar_estado_reserva(self, id_reserva: str, nuevo_estado: str) -> Reserva:
+        id_limpio = EntidadBase.validar_texto_no_vacio(id_reserva, "id_reserva")
+        if id_limpio not in self.reservas:
+            raise ErrorDisponibilidadServicio(f"No se encontró la reserva '{id_limpio}'.")
+
+        reserva = self.reservas[id_limpio]
+        estado_anterior = reserva.estado
+        reserva.cambiar_estado(nuevo_estado)
+        self.logger.info(
+            f"Estado de reserva '{id_limpio}' actualizado de {estado_anterior} a {reserva.estado}."
+        )
+        return reserva
+
+    def calcular_ingresos_activos(self) -> float:
+        total = sum(
+            r.total for r in self.reservas.values() if r.estado in {"CONFIRMADA", "COMPLETADA"}
+        )
+        return round(total, 2)
+
+    def mostrar_resumen(self) -> None:
+        self.logger.info("=== RESUMEN GENERAL SOFTWARE FJ ===")
+        self.logger.info(f"Total clientes: {len(self.clientes)}")
+        self.logger.info(f"Total servicios: {len(self.servicios)}")
+        self.logger.info(f"Total reservas: {len(self.reservas)}")
+        self.logger.info(f"Ingresos (CONFIRMADA/COMPLETADA): ${self.calcular_ingresos_activos():,.2f}")
+
+
+def ejecutar_simulacion() -> None:
+    """Ejecuta una simulación de 10 operaciones cubriendo casos válidos y errores."""
     logger = configurar_logger()
-    logger.info("Probando Bloque 2 (modelos POO)...")
+    gestor = GestorSoftwareFJ(logger)
+    logger.info("Iniciando simulación de 10 operaciones en Software FJ...")
 
-    cliente_prueba = Cliente("C01", "Sergio Becerra", "sergio@ejemplo.com", "3001234567")
-    sala_prueba = ReservaSala("S01", "Sala de Reuniones A", 50000, capacidad=10)
-    reserva_prueba = Reserva("R01", cliente_prueba, sala_prueba, 2, "2026-11-21")
+    operaciones = [
+        ("Op 1 - Registrar cliente válido", lambda: gestor.registrar_cliente(
+            Cliente("C01", "Sergio Becerra", "sergio@ejemplo.com", "3001234567")
+        )),
+        ("Op 2 - Registrar segundo cliente", lambda: gestor.registrar_cliente(
+            Cliente("C02", "Paula Suarez", "paula@ejemplo.com", "3119876543")
+        )),
+        ("Op 3 - Cliente con correo inválido", lambda: gestor.registrar_cliente(
+            Cliente("C03", "Cliente Error", "correo-no-valido", "3000000000")
+        )),
+        ("Op 4 - Registrar sala de reuniones", lambda: gestor.registrar_servicio(
+            ReservaSala("S01", "Sala de Reuniones A", 50000, capacidad=10, disponible=True)
+        )),
+        ("Op 5 - Registrar equipo y asesoría", lambda: (
+            gestor.registrar_servicio(AlquilerEquipo("E01", "Portátil Empresarial", 35000, "Cómputo", disponible=True)),
+            gestor.registrar_servicio(AsesoriaEspecializada("A01", "Soporte de Sistemas", 80000, "Arquitectura", disponible=False)),
+        )),
+        ("Op 6 - Crear reserva válida de sala (2h)", lambda: gestor.crear_reserva(
+            "R01", "C01", "S01", 2, "2026-11-21"
+        )),
+        ("Op 7 - Crear reserva válida de equipo (3 uds)", lambda: gestor.crear_reserva(
+            "R02", "C02", "E01", 3, "2026-11-22"
+        )),
+        ("Op 8 - Intentar reservar servicio no disponible", lambda: gestor.crear_reserva(
+            "R03", "C01", "A01", 1, "2026-11-23"
+        )),
+        ("Op 9 - Intentar reserva de sala > 12 horas", lambda: gestor.crear_reserva(
+            "R04", "C01", "S01", 15, "2026-11-24"
+        )),
+        ("Op 10 - Completar reserva R01 y ver resumen", lambda: (
+            gestor.actualizar_estado_reserva("R01", "COMPLETADA"),
+            gestor.mostrar_resumen(),
+        )),
+    ]
 
-    logger.info(str(cliente_prueba))
-    logger.info(str(sala_prueba))
-    logger.info(str(reserva_prueba))
+    for descripcion, accion in operaciones:
+        try:
+            accion()
+        except ErrorSoftwareFJ as err:
+            logger.error(f"{descripcion} -> [{err.codigo}] {err}")
+        except Exception as err:
+            logger.exception(f"{descripcion} -> Error inesperado: {err}")
+
+    logger.info("Simulación finalizada.")
+
+
+if __name__ == "__main__":
+    ejecutar_simulacion()
 
